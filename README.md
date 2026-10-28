@@ -2,7 +2,7 @@
 
 in this repository we discuss the way to train a prefixed LLM network size .
 
-👉 **[CLICK HERE TO RUN THE LIVE BENCHMARK](optimised-static-LLM-training-)**
+👉 **[CLICK HERE TO RUN THE LIVE BENCHMARK](optimised-static-LLM-training)**
 
 
 *Co-authored by [sighthough](https://youtu.be/UtPiUGwu-0Q) and [Googles Gemini](https://www.youtube.com/shorts/R3Qo4rBgrD8).*
