@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Progressive Cumulative Greedy Training Benchmark</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg-color: #0d1117;
+      --card-bg: #161b22;
+      --border-color: #30363d;
+      --text-color: #c9d1d9;
+      --accent-greedy: #00d2ff;
+      --accent-baseline: #9d4edd;
+      --success: #2ea44f;
+      --warning: #d29922;
+      --danger: #f85149;
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+    }
+
+    h1, h2, h3 {
+      margin-top: 0;
+    }
+
+    .header {
+      margin-bottom: 20px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      margin-bottom: 20px;
+      background: var(--card-bg);
+      padding: 15px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+    }
+
+    button, select {
+      background: #21262d;
+      color: #c9d1d9;
+      border: 1px solid var(--border-color);
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    button:hover, select:hover {
+      background: #30363d;
+    }
+
+    button.primary {
+      background: #238636;
+      border-color: rgba(240, 246, 252, 0.1);
+      color: #fff;
+    }
+
+    button.primary:hover {
+      background: #2ea44f;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 15px;
+    }
+
+    .metrics-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 0.9em;
+    }
+
+    .metric-box {
+      background: #0d1117;
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      flex: 1;
+      margin: 0 5px;
+      text-align: center;
+    }
+
+    .metric-value {
+      font-weight: bold;
+      font-size: 1.1em;
+    }
+
+    .greedy-val { color: var(--accent-greedy); }
+    .baseline-val { color: var(--accent-baseline); }
+
+    .canvas-container {
+      display: flex;
+      justify-content: space-around;
+      margin-top: 15px;
+    }
+
+    canvas {
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+    }
+
+    .chart-container {
+      position: relative;
+      height: 250px;
+      width: 100%;
+      margin-top: 15px;
+    }
+
+    #logConsole {
+      width: 100%;
+      height: 120px;
+      background: #05070a;
+      color: #7ee787;
+      font-family: monospace;
+      padding: 10px;
+      box-sizing: border-box;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      overflow-y: scroll;
+      font-size: 0.85em;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 0.8em;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+
+    .badge-greedy { background: rgba(0, 210, 255, 0.2); color: var(--accent-greedy); border: 1px solid var(--accent-greedy); }
+    .badge-baseline { background: rgba(157, 78, 221, 0.2); color: var(--accent-baseline); border: 1px solid var(--accent-baseline); }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>Progressive Cumulative Greedy Training vs Baseline</h1>
+    <p>Comparing forward-expanding layer-wise training with peak rollback against standard dense backpropagation (517 parameters).</p>
+  </div>
+
+  <div class="controls">
+    <button id="startBtn" class="primary" onclick="toggleTraining()">Start Training</button>
+    <button onclick="resetBenchmark()">Reset Benchmark</button>
+    <label for="datasetSelect">Dataset Pattern:</label>
+    <select id="datasetSelect" onchange="resetBenchmark()">
+      <option value="spiral">Intertwined Spirals</option>
+      <option value="xor">XOR Grid</option>
+      <option value="circles">Concentric Circles</option>
+    </select>
+  </div>
+
+  <div class="grid">
+    <!-- Greedy Model Card -->
+    <div class="card">
+      <span class="status-badge badge-greedy">GREEDY PROTOCOL MODEL</span>
+      <h3 id="greedyPhaseText">Phase: Idle</h3>
+      <div class="metrics-row">
+        <div class="metric-box">Epoch<div id="greedyEpoch" class="metric-value greedy-val">0</div></div>
+        <div class="metric-box">Active Params<div id="greedyParams" class="metric-value greedy-val">0 / 517</div></div>
+        <div class="metric-box">Learning Rate<div id="greedyLR" class="metric-value greedy-val">0.0300</div></div>
+        <div class="metric-box">Loss / Acc<div id="greedyMetrics" class="metric-value greedy-val">0.00 / 0%</div></div>
+      </div>
+      <div class="canvas-container">
+        <div>
+          <div style="text-align:center; font-size:0.8em; margin-bottom:4px;">Decision Boundary</div>
+          <canvas id="greedyCanvas" width="200" height="200"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Baseline Model Card -->
+    <div class="card">
+      <span class="status-badge badge-baseline">BASELINE DENSE MODEL</span>
+      <h3>Phase: Dense Global Backprop</h3>
+      <div class="metrics-row">
+        <div class="metric-box">Epoch<div id="baselineEpoch" class="metric-value baseline-val">0</div></div>
+        <div class="metric-box">Active Params<div id="baselineParams" class="metric-value baseline-val">517 / 517</div></div>
+        <div class="metric-box">Learning Rate<div id="baselineLR" class="metric-value baseline-val">0.0300</div></div>
+        <div class="metric-box">Loss / Acc<div id="baselineMetrics" class="metric-value baseline-val">0.00 / 0%</div></div>
+      </div>
+      <div class="canvas-container">
+        <div>
+          <div style="text-align:center; font-size:0.8em; margin-bottom:4px;">Decision Boundary</div>
+          <canvas id="baselineCanvas" width="200" height="200"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid" style="margin-top: 20px;">
+    <div class="card">
+      <h3>Training Performance (Loss)</h3>
+      <div class="chart-container">
+        <canvas id="lossChart"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Execution & Event Logs</h3>
+      <div id="logConsole">System initialized. Click 'Start Training' to begin benchmark...</div>
+    </div>
+  </div>
+
+  <script>
+    const INITIAL_LR = 0.03;
+    const MIN_LR = 0.001;
+    const TOTAL_PARAMS = 517;
+    let isTraining = false;
+    let animationFrame = null;
+    let currentEpoch = 0;
+    let dataset = [];
+
+    let lossChart;
+    const greedyCanvas = document.getElementById('greedyCanvas');
+    const baselineCanvas = document.getElementById('baselineCanvas');
+    const greedyCtx = greedyCanvas.getContext('2d');
+    const baselineCtx = baselineCanvas.getContext('2d');
+
+    let baselineNet, greedyNet;
+
+    class Layer {
+      constructor(inDim, outDim) {
+        this.inDim = inDim;
+        this.outDim = outDim;
+        const scale = Math.sqrt(2.0 / (inDim + outDim));
+        this.weights = Array.from({ length: outDim }, () => Array.from({ length: inDim }, () => (Math.random() - 0.5) * 2 * scale));
+        this.biases = Array.from({ length: outDim }, () => 0);
+        this.bestWeights = null;
+        this.bestBiases = null;
+      }
+
+      saveState() {
+        this.bestWeights = this.weights.map(row => [...row]);
+        this.bestBiases = [...this.biases];
+      }
+
+      rollback() {
+        if (this.bestWeights && this.bestBiases) {
+          this.weights = this.bestWeights.map(row => [...row]);
+          this.biases = [...this.bestBiases];
+        }
+      }
+
+      paramCount() {
+        return (this.inDim * this.outDim) + this.outDim;
+      }
+    }
+
+    class MLP {
+      constructor(isBaseline = false) {
+        // Architecture: Input(2) -> H1(12) -> H2(12) -> H3(12) -> H4(12) -> Out(1)
+        this.layers = [
+          new Layer(2, 12),
+          new Layer(12, 12),
+          new Layer(12, 12),
+          new Layer(12, 12),
+          new Layer(12, 1) // Output layer
+        ];
+        this.isBaseline = isBaseline;
+      }
+
+      forward(x, activePhase = 4) {
+        let current = x;
+        this.activations = [x];
+        
+        // For baseline or grand finale, use all 4 hidden layers (maxLayerIdx = 3)
+        // For greedy phases, expand active layers cumulatively: Phase 0 -> 0, Phase 1 -> 0,1, etc.
+        const maxLayerIdx = this.isBaseline ? 3 : Math.min(activePhase, 3);
+
+        for (let l = 0; l <= maxLayerIdx; l++) {
+          const next = [];
+          const layer = this.layers[l];
+          for (let i = 0; i < layer.outDim; i++) {
+            let sum = layer.biases[i];
+            for (let j = 0; j < layer.inDim; j++) {
+              sum += layer.weights[i][j] * current[j];
+            }
+            next.push(Math.tanh(sum));
+          }
+          current = next;
+          this.activations.push(current);
+        }
+
+        // Output layer (layers[4])
+        const outLayer = this.layers[4];
+        let outSum = outLayer.biases[0];
+        for (let j = 0; j < outLayer.inDim; j++) {
+          outSum += outLayer.weights[0][j] * current[j];
+        }
+        const finalOut = 1 / (1 + Math.exp(-Math.max(-10, Math.min(10, outSum))));
+        this.activations.push([finalOut]);
+
+        return finalOut;
+      }
+
+      backward(target, lr, activePhase = 4) {
+        const out = this.activations[this.activations.length - 1][0];
+        let deltas = [(out - target) * out * (1 - out)];
+
+        const maxLayerIdx = this.isBaseline ? 3 : Math.min(activePhase, 3);
+
+        // Update Output Layer (layers[4])
+        const outLayer = this.layers[4];
+        const prevActForOut = this.activations[maxLayerIdx + 1];
+        const nextDeltas = Array(outLayer.inDim).fill(0);
+
+        for (let j = 0; j < outLayer.inDim; j++) {
+          nextDeltas[j] += deltas[0] * outLayer.weights[0][j];
+          outLayer.weights[0][j] -= lr * deltas[0] * prevActForOut[j];
+        }
+        outLayer.biases[0] -= lr * deltas[0];
+
+        deltas = nextDeltas.map((d, idx) => {
+          const act = prevActForOut[idx];
+          return d * (1 - act * act);
+        });
+
+        // Update Active Hidden Layers
+        for (let l = maxLayerIdx; l >= 0; l--) {
+          const layer = this.layers[l];
+          const prevAct = this.activations[l];
+          const layerNextDeltas = Array(layer.inDim).fill(0);
+
+          for (let i = 0; i < layer.outDim; i++) {
+            for (let j = 0; j < layer.inDim; j++) {
+              layerNextDeltas[j] += deltas[i] * layer.weights[i][j];
+              layer.weights[i][j] -= lr * deltas[i] * prevAct[j];
+            }
+            layer.biases[i] -= lr * deltas[i];
+          }
+
+          if (l > 0) {
+            deltas = layerNextDeltas.map((d, idx) => {
+              const act = prevAct[idx];
+              return d * (1 - act * act);
+            });
+          }
+        }
+      }
+
+      getActiveParams(activePhase = 4) {
+        if (this.isBaseline || activePhase >= 4) return TOTAL_PARAMS;
+        let count = 13; // Output layer params
+        const maxLayerIdx = Math.min(activePhase, 3);
+        for (let l = 0; l <= maxLayerIdx; l++) {
+          count += this.layers[l].paramCount();
+        }
+        return count;
+      }
+    }
+
+    function generateDataset(type) {
+      const data = [];
+      const samples = 240;
+      for (let i = 0; i < samples; i++) {
+        let x, y, label;
+        if (type === 'spiral') {
+          const r = (i / samples) * 0.95;
+          const t = 2.5 * i * 0.1 + (i % 2 === 0 ? 0 : Math.PI);
+          x = r * Math.sin(t) + (Math.random() - 0.5) * 0.03;
+          y = r * Math.cos(t) + (Math.random() - 0.5) * 0.03;
+          label = i % 2 === 0 ? 1 : 0;
+        } else if (type === 'xor') {
+          x = (Math.random() - 0.5) * 1.6;
+          y = (Math.random() - 0.5) * 1.6;
+          label = (x * y > 0) ? 1 : 0;
+        } else {
+          x = (Math.random() - 0.5) * 1.6;
+          y = (Math.random() - 0.5) * 1.6;
+          const dist = Math.sqrt(x*x + y*y);
+          label = (dist > 0.3 && dist < 0.7) ? 1 : 0;
+        }
+        data.push({ x: [x, y], label });
+      }
+      return data;
+    }
+
+    let greedyState = {
+      phase: 0, // 0: L1, 1: L1+2, 2: L1+2+3, 3: L1+2+3+4, 4: Grand Finale
+      lr: INITIAL_LR,
+      bestLoss: Infinity,
+      stagnantEpochs: 0,
+      phaseEpochs: 0
+    };
+
+    function logEvent(msg) {
+      const consoleEl = document.getElementById('logConsole');
+      consoleEl.innerHTML += `<div>[Epoch ${currentEpoch}] ${msg}</div>`;
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    function initChart() {
+      const ctx = document.getElementById('lossChart').getContext('2d');
+      lossChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            { label: 'Greedy Protocol Loss', borderColor: '#00d2ff', data: [], borderWidth: 2, pointRadius: 0 },
+            { label: 'Baseline Loss', borderColor: '#9d4edd', data: [], borderWidth: 2, pointRadius: 0 }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { type: 'linear', display: true },
+            y: { min: 0, max: 0.5 }
+          }
+        }
+      });
+    }
+
+    function resetBenchmark() {
+      isTraining = false;
+      document.getElementById('startBtn').innerText = 'Start Training';
+      document.getElementById('startBtn').className = 'primary';
+      cancelAnimationFrame(animationFrame);
+
+      currentEpoch = 0;
+      dataset = generateDataset(document.getElementById('datasetSelect').value);
+
+      baselineNet = new MLP(true);
+      greedyNet = new MLP(false);
+
+      greedyState = { phase: 0, lr: INITIAL_LR, bestLoss: Infinity, stagnantEpochs: 0, phaseEpochs: 0 };
+
+      document.getElementById('logConsole').innerHTML = 'Benchmark reset. Ready to start.';
+      if (lossChart) {
+        lossChart.data.labels = [];
+        lossChart.data.datasets[0].data = [];
+        lossChart.data.datasets[1].data = [];
+        lossChart.update();
+      }
+
+      updateUI(0, 0, 0, 0);
+      renderBoundaries();
+    }
+
+    function trainEpoch() {
+      currentEpoch++;
+
+      // 1. Train Baseline
+      let baselineLoss = 0;
+      let baselineCorrect = 0;
+      dataset.forEach(pt => {
+        const pred = baselineNet.forward(pt.x, 4);
+        baselineLoss += Math.pow(pred - pt.label, 2);
+        if ((pred >= 0.5 ? 1 : 0) === pt.label) baselineCorrect++;
+        baselineNet.backward(pt.label, INITIAL_LR, 4);
+      });
+      baselineLoss /= dataset.length;
+      const baselineAcc = (baselineCorrect / dataset.length) * 100;
+
+      // 2. Train Cumulative Greedy Model
+      let greedyLoss = 0;
+      let greedyCorrect = 0;
+      dataset.forEach(pt => {
+        const pred = greedyNet.forward(pt.x, greedyState.phase);
+        greedyLoss += Math.pow(pred - pt.label, 2);
+        if ((pred >= 0.5 ? 1 : 0) === pt.label) greedyCorrect++;
+        greedyNet.backward(pt.label, greedyState.lr, greedyState.phase);
+      });
+      greedyLoss /= dataset.length;
+      const greedyAcc = (greedyCorrect / dataset.length) * 100;
+
+      handleGreedyLifecycle(greedyLoss);
+
+      updateUI(greedyLoss, greedyAcc, baselineLoss, baselineAcc);
+      
+      if (currentEpoch % 2 === 0) {
+        lossChart.data.labels.push(currentEpoch);
+        lossChart.data.datasets[0].data.push(greedyLoss);
+        lossChart.data.datasets[1].data.push(baselineLoss);
+        lossChart.update('none');
+        renderBoundaries();
+      }
+
+      if (isTraining && currentEpoch < 700) {
+        animationFrame = requestAnimationFrame(trainEpoch);
+      } else if (currentEpoch >= 700) {
+        toggleTraining();
+        logEvent("Benchmark completed (700 Epoch limit reached).");
+      }
+    }
+
+    function handleGreedyLifecycle(currentLoss) {
+      greedyState.phaseEpochs++;
+
+      if (currentLoss < greedyState.bestLoss - 0.0002) {
+        greedyState.bestLoss = currentLoss;
+        greedyState.stagnantEpochs = 0;
+        if (greedyState.phase < 4) {
+          greedyNet.layers[greedyState.phase].saveState();
+        }
+      } else {
+        greedyState.stagnantEpochs++;
+      }
+
+      // Adaptive LR Halver on Plateau
+      if (greedyState.stagnantEpochs > 15) {
+        const nextLR = Math.max(MIN_LR, greedyState.lr * 0.5);
+        if (nextLR !== greedyState.lr) {
+          greedyState.lr = nextLR;
+          logEvent(`Performance plateau. Stepping back & halving LR to ${greedyState.lr.toFixed(4)}.`);
+        }
+        greedyState.stagnantEpochs = 0;
+      }
+
+      // Cumulative Phase Transition Logic (Phases 0 to 3)
+      if (greedyState.phase < 4) {
+        // Prompt transition after ~45 epochs or upon saturation
+        if (greedyState.phaseEpochs > 45 && (greedyState.stagnantEpochs > 10 || greedyState.phaseEpochs > 80)) {
+          logEvent(`Layer ${greedyState.phase + 1} converged. Rolling back to peak checkpoint.`);
+          greedyNet.layers[greedyState.phase].rollback();
+          greedyState.phase++;
+          
+          // Reset LR & counters for newly expanded phase
+          greedyState.lr = INITIAL_LR;
+          greedyState.bestLoss = Infinity;
+          greedyState.stagnantEpochs = 0;
+          greedyState.phaseEpochs = 0;
+
+          if (greedyState.phase < 4) {
+            logEvent(`<b>Expanding Scope:</b> Adding Layer ${greedyState.phase + 1}. Active stack: 1 to ${greedyState.phase + 1}. LR reset to ${INITIAL_LR}.`);
+          } else {
+            logEvent(`<b>Grand Finale Unfreeze!</b> All 4 layers active for joint harmonization. LR reset to ${INITIAL_LR}.`);
+          }
+        }
+      }
+    }
+
+    function updateUI(gLoss, gAcc, bLoss, bAcc) {
+      document.getElementById('greedyEpoch').innerText = currentEpoch;
+      document.getElementById('baselineEpoch').innerText = currentEpoch;
+
+      const gActive = greedyNet.getActiveParams(greedyState.phase);
+      document.getElementById('greedyParams').innerText = `${gActive} / ${TOTAL_PARAMS}`;
+      document.getElementById('baselineParams').innerText = `${TOTAL_PARAMS} / ${TOTAL_PARAMS}`;
+
+      document.getElementById('greedyLR').innerText = greedyState.lr.toFixed(4);
+      document.getElementById('greedyMetrics').innerText = `${gLoss.toFixed(3)} / ${gAcc.toFixed(1)}%`;
+      document.getElementById('baselineMetrics').innerText = `${bLoss.toFixed(3)} / ${bAcc.toFixed(1)}%`;
+
+      let phaseText = `Phase 5: Grand Finale Joint Fine-Tuning`;
+      if (greedyState.phase === 0) phaseText = `Phase 1: Training Layer 1`;
+      else if (greedyState.phase === 1) phaseText = `Phase 2: Expanding to Layer 1 + 2`;
+      else if (greedyState.phase === 2) phaseText = `Phase 3: Expanding to Layers 1-3`;
+      else if (greedyState.phase === 3) phaseText = `Phase 4: Expanding to Layers 1-4`;
+      
+      document.getElementById('greedyPhaseText').innerText = phaseText;
+    }
+
+    function renderBoundaries() {
+      drawCanvas(greedyCtx, greedyNet, greedyState.phase);
+      drawCanvas(baselineCtx, baselineNet, 4);
+    }
+
+    function drawCanvas(ctx, net, activePhase) {
+      const res = 40;
+      const w = 200 / res;
+      for (let i = 0; i < res; i++) {
+        for (let j = 0; j < res; j++) {
+          const x = (i / res) * 2 - 1;
+          const y = (j / res) * 2 - 1;
+          const pred = net.forward([x, y], activePhase);
+          const r = Math.floor(pred * 0 + (1 - pred) * 157);
+          const g = Math.floor(pred * 210 + (1 - pred) * 78);
+          const b = Math.floor(pred * 255 + (1 - pred) * 221);
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+          ctx.fillRect(i * w, j * w, w, w);
+        }
+      }
+
+      dataset.forEach(pt => {
+        const cx = (pt.x[0] + 1) * 100;
+        const cy = (pt.x[1] + 1) * 100;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 3, 0, 2 * Math.PI);
+        ctx.fillStyle = pt.label === 1 ? '#00d2ff' : '#9d4edd';
+        ctx.fill();
+        ctx.strokeStyle = '#000';
+        ctx.stroke();
+      });
+    }
+
+    function toggleTraining() {
+      isTraining = !isTraining;
+      const btn = document.getElementById('startBtn');
+      if (isTraining) {
+        btn.innerText = 'Pause Training';
+        btn.className = '';
+        trainEpoch();
+      } else {
+        btn.innerText = 'Resume Training';
+        btn.className = 'primary';
+        cancelAnimationFrame(animationFrame);
+      }
+    }
+
+    window.onload = () => {
+      initChart();
+      resetBenchmark();
+    };
+  </script>
+</body>
+</html>
